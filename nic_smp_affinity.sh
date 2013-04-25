@@ -1,7 +1,7 @@
 #!/bin/bash
-# Author:"Wang Chunsheng"<chunshengster@gmail.com
-# Date: xxxx.xx.xx
-# USAGE: ./$0 -nic em1
+# Author:"Wang Chunsheng"<chunshengster@gmail.com>
+# Date: 2013.04.25
+# usage example : ./$0 -nic em1
 
 function usage(){
   echo "This script can set nic dev to spical cpu node"
