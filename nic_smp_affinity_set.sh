@@ -2,30 +2,37 @@
 # Author:"Wang Chunsheng"<chunshengster@gmail.com>
 # Date: 2013.04.25
 # usage example : ./$0 -nic em1
+#TODO:support config one specified nic card
+#TODO:add numa node support 
 
-set -x
 
-#for grep nic card patten,you can change this one to meet you system envement!
-NIC_PATTERN='em\|eth\|p1\|wlan'
-RX_PATTERN='rx'
+#set -x
+
+#for grep nic card pattern,you can change this one to meet you system enverment!
+NIC_PATTERN='em\|eth\|p1'
+RX_PATTERN='rx-'
 
 LS='/bin/ls'
 CAT='/bin/cat'
 GREP='/bin/grep'
 PS='/bin/ps'
-#TODO:add support ubuntu system stop a service
-#this time only support Redhat  system 
+WC='/usr/bin/wc'
+
+#TODO:add support to ubuntu system stop a service
+#this time only support Redhat system 
 SERVICE='/sbin/service'
 CHKCONFIG='/sbin/chkconfig'
 
-#
-#TODO:this will be a param which get value from commond line with opt -di
-DISABLE_IRQBALANCE='no'
+DISABLE_IRQBALANCE='NO'
+ONLY_SHOW='NO'
+QUIET='NO'
+LOG_MSG='NO'
 
 SYSNET_PATH='/sys/class/net'
 QUEUE_PATH='queues'
 RSF_ENTRIES_FILE="/proc/sys/net/core/rps_sock_flow_entries"
 RSF_ENTRIES_NUM=32768
+RPS_FLOW_CNT=4096
 
 CPU_IDS=''
 CPU_COUNT=0
@@ -34,25 +41,92 @@ SMP_AFFINITY_INF=''
 RPS_RFS_INF=''
 RPS_RFS_MASK=''
 
+
+function parser_args(){
+	local all_run=0
+	while test -n "$1"; do
+	    case "$1" in
+			-o|--only_show)
+				DISABLE_IRQBALANCE='NO'
+				ONLY_SHOW='YES'
+			    shift
+			    ;;
+			-q|--quiet)
+			    QUIET='YES'
+			    shift
+			    ;;
+			-a|--all)
+				all_run=1
+				shift
+				;;
+			-d|--disable_irqbalance)
+				DISABLE_IRQBALANCE='YES'
+				shift
+				;;
+			-n|--nic)
+			#hvae not implement
+				nic_dev=$2
+				shift 2
+				;;
+			-h|--help)
+			    echo
+			    return 1
+			    ;;
+			*)
+			    echo "Unknown argument: $1"
+			    usage
+			    return 1
+			    ;;
+	    esac
+	done
+	
+	if [ $all_run -eq 0 ] && [ -z $nic_dev ]; then
+		usage
+		return 1
+	fi	
+	###
+	# suck !!!!
+	if [ "$ONLY_SHOW" == 'YES' ] && [ "$QUIET" == 'YES' ]; then
+		echo '$ONLY_SHOW:'$ONLY_SHOW
+		echo '$QUIET:'$QUIET
+		echo "[ERROR] You can set either -o or -q, but can not both !"
+		return 1
+	else
+		return 0
+	fi
+	
+	return 1
+}
+
+function debug_echo(){
+	if [ "$QUIET" == 'NO' ];then
+		echo "$*"
+	fi	
+	if [ "$LOG_MSG" == 'YES' ]; then
+		logger "$*"
+	fi
+}
+
 function check_interface_inuse(){
-	local updown=$($CAT "$SYSNET_PATH/$1/operstate")
-	if [ $? -eq 0 ]; then
-		if [ $updown == 'up' ]; then
-			return 0
-		else
-			return 1
+	if [ -f "$SYSNET_PATH/$1/operstate" ]; then 
+		local updown=$($CAT "$SYSNET_PATH/$1/operstate")
+		if [ $? -eq 0 ]; then
+			if [ "$updown" == 'up' ]; then
+				return 0
+			else
+				return 1
+			fi
 		fi
 	fi
 	return 1
 }
 
 function get_all_inused_interfaces(){
-	local allInterFaces=$($LS $SYSNET_PATH | $GREP $NIC_PATTERN)
-	
-	local len_t=${#allInterFaces}
-	
+	local allInterFaces=$($LS "$SYSNET_PATH" | $GREP $NIC_PATTERN)
+	#local len_t=${#allInterFaces}
+	local len_t=$(echo $allInterFaces | $WC -w)
 	if [ $len_t -lt 1 ];then
-			return 1
+		return 1
 	fi
 	
 	for inf_t in $allInterFaces;do
@@ -67,9 +141,8 @@ function get_all_inused_interfaces(){
 	return 0
 }
 
-
-# check if smp affinity support,if not,will use rps/rfs future
-function check_smp_affinity_support(){
+# get all nic card that support smp_affinity or rfs/rfs ,if no one ,return error
+function get_smp_affinity_nics(){
 	if [ -z $1 ];then
 		return 1
 	fi
@@ -79,39 +152,51 @@ function check_smp_affinity_support(){
 	else
 		RPS_RFS_INF=$RPS_RFS_INF" "$1
 	fi
+	local count_t=$(echo $SMP_AFFINITY_INF$RPS_RFS_INF|$WC -w)
+	
+	if [ $count_t -gt 0 ]; then
+		return 0
+	fi
 	return 1
 }
 
 
-# check for irqbalance running
-# if $DISABLE_IRQBALANCE == 'yes' then disable irqbalance service
+# check for irq_balance running
+# if $DISABLE_IRQBALANCE == 'YES' then disable irqbalance service
 function check_irqbalance_on(){
-	IRQBALANCE_ON=$($PS ax | $GREP -v grep | $GREP -q irqbalance; echo $?)
+	IRQBALANCE_ON=$($PS ax | $GREP -v "grep" | $GREP -q "irqbalance"; echo $?)
+	
 	if [ "$IRQBALANCE_ON" == "0" ] ; then
-	        
-	        if [ $DISABLE_IRQBALANCE == 'yes' ]; then
+	        echo " WARNING: irq_balance is running and will"
+	        echo "          likely override this script's affinitization."
+	        echo "          Please stop the irq_balance service and/or execute"
+	        echo "          'killall irqbalance'" 
+	        if [ "$DISABLE_IRQBALANCE" == 'YES' ]; then
 	        	$SERVICE irqbalance stop
 	        	if [ $? -eq 0 ]; then 
 	        		return 0
 	        	fi
 	        fi
-	        echo " WARNING: irqbalance is running and will"
-	        echo "          likely override this script's affinitization."
-	        echo "          Please stop the irqbalance service and/or execute"
-	        echo "          'killall irqbalance'" 
+	
+		if [ "$ONLY_SHOW" == 'YES' ];then
+			return 0
+		fi
+	else
+		return 0
 	fi
 	return 1
 }
 
 function get_cpuinfo(){
-	CPU_IDS=$($CAT /proc/cpuinfo | $GREP processor | $GREP -v grep | cut -d: -f 2)	
-	CPU_COUNT=$(echo $CPU_IDS | wc -w)
+	CPU_IDS=$($CAT "/proc/cpuinfo" | $GREP processor | $GREP -v grep | cut -d: -f 2)	
+	CPU_COUNT=$(echo $CPU_IDS | $WC -w)
 	if [ $CPU_COUNT -lt 1 ];then
 		return 1
 	fi
 	return 0
 }
 
+#
 function get_rpfs_affinity_mask(){
 	local t=$(($CPU_COUNT/4))
 	if [ $t -lt 1 ]; then
@@ -121,94 +206,152 @@ function get_rpfs_affinity_mask(){
 	for i in $(seq $t); do
 		RPS_RFS_MASK=$RPS_RFS_MASK'f'
 	done
+	#	local t1=$(($CPU_COUNT-$t))
+	#if [ $t1 -gt 0 ]; then
+		#	for i in $(seq $t1); do
+			#	RPS_RFS_MASK="0"$RPS_RFS_MASK
+		#done
+	#fi
 	
 	local ok_t=$(echo $RPS_RFS_MASK | $GREP -q 'f'; echo $?)
 	return $ok_t				
 }
 
-#TODO:refactor this function
 function do_rpfs_enable(){
 	nic_dev=$1
-	if [ -f SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_cpus ]; then
-		echo $RPS_RFS_MASK > SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_cpus
+	
+	debug_echo "dealing with interface :"$nic_dev
+
+	local rps_cpus_file_t="$SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_cpus"
+	debug_echo "dealing with rsf_entries :"$rps_cpus_file_t
+	if [ -f $rps_cpus_file_t ]; then
+		local rps_cpus=$($CAT $rps_cpus_file_t | tr -d '0')
+		#compare current rps_cus to $RPS_RFS_MASK
+		if [ $rps_cpus != $RPS_RFS_MASK ]; then
+			if [ "$ONLY_SHOW" == 'NO' ]; then
+				echo $RPS_RFS_MASK > $rps_cpus_file_t
+				local rps_cpus_tt=$($CAT $rps_cpus_file_t | tr -d '0')
+				if [ "$rps_cpus_tt" != "$RPS_RFS_MASK" ]; then
+					echo "	[ERROR]:setting $rps_cpus_file_t to $RPS_RFS_MASK error !"
+					return 1
+				fi
+			fi
+			debug_echo "	origin value :"$rps_cpus
+			debug_echo "		will be set to :"$RPS_RFS_MASK
+		else
+			debug_echo "	already been set to:"$RPS_RFS_MASK
+		fi
 	else
 		return 1
 	fi
-	if [ -f SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_flow_cnt ]; then
-		echo 4096 > SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_flow_cnt
+	
+	local rps_flow_cnt_file_t="$SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_flow_cnt"
+	debug_echo "dealing with rsf_entries :"$rps_flow_cnt_file_t
+	if [ -f $rps_flow_cnt_file_t ]; then
+		local rps_flow_cnt=$($CAT $rps_flow_cnt_file_t)
+		#compare current rps_flow_cnt to $RPS_FLOW_CNT
+		if [ "$rps_flow_cnt" != "$RPS_FLOW_CNT" ];then
+			#	echo $RPS_FLOW_CNT 
+			if [ "$ONLY_SHOW" == 'NO' ];then 
+				echo $RPS_FLOW_CNT > $rps_flow_cnt_file_t
+				local rps_flow_cnt_tt=$($CAT $rps_flow_cnt_file_t)
+				if [ $rps_flow_cnt_tt != $RPS_FLOW_CNT ]; then
+					echo "	[ERROR]:setting $rps_flow_cnt_file_t to $RPS_FLOW_CNT error !"
+					return 1
+				fi
+			fi
+			debug_echo "	origin value :" $rps_flow_cnt
+			debug_echo "		will be set to :"$RPS_FLOW_CNT
+		else
+			debug_echo "		already been set to:"$RPS_FLOW_CNT
+		fi
 	else
 		return 1
+	fi
 	return 0	
 }
 
 function do_rsf_entries_enable(){
-	rsf_entries=$($CAT $RSF_ENTRIES_FILE)
+	debug_echo "dealing with rsf_entries :"$RSF_ENTRIES_FILE
+	local rsf_entries=$($CAT $RSF_ENTRIES_FILE)
 	if [ $rsf_entries -eq $RSF_ENTRIES_NUM ]; then
 		return 0
 	else
-		echo $RSF_ENTRIES_NUM > $RSF_ENTRIES_FILE
-	return 0	
+		if [ "$ONLY_SHOW" == 'NO' ];then
+			echo $RSF_ENTRIES_NUM > $RSF_ENTRIES_FILE
+			local rsf_entries_t=$($CAT $RSF_ENTRIES_FILE)
+			if [ $rsf_entries -eq $RSF_ENTRIES_NUM ]; then
+				return 0
+			else
+				echo "	[ERROR]:setting $RSF_ENTRIES_FILE to $RSF_ENTRIES_NUM error !"
+				return 1
+			fi
+		else
+			debug_echo "	origin value :"$rsf_entries
+			debug_echo "	will be set to :"$RSF_ENTRIES_NUM
+		fi
+	fi
 }
 
 function do_smpaffinity_enable(){
 	nic_dev=$1
-	softIrqs=$(cat /proc/interrupts | $GREP $nic_dev | tr -s " " ":" | cut -d: -f 2)		
-	softIrqCount=$(echo $softIrqs | wc -w)
+	softIrqs=$($CAT "/proc/interrupts" | $GREP $nic_dev"-" | tr -s " " ":" | cut -d: -f 2)		
+	softIrqCount=$(echo $softIrqs | $WC -w)
 	
 	first=$(echo $softIrqs|cut -d" " -f 1)	
 	if [ $CPU_COUNT -lt $softIrqCount ]; then
-		echo "Notice, CPU_COUNT:" $CPU_COUNT " is lt than nic softIrqCount :" $softIrqCount
+		debug_echo "Notice, CPU_COUNT:" $CPU_COUNT " is little than nic softIrqCount :" $softIrqCount
 	fi
 	
-	echo "$nic_dev nic softIrq list: " $softIrqs
-	echo "total cpu list: " $cpuIds
-	echo "first softIqr: " $first
-	tmpC=0
-	for s in $softIrqs 
-	do
-		tmpC=$(($tmpC + 1))
-		if [ $(($tmpC+2)) -gt $CPU_COUNT ]; then
-			#echo "Only can set "$CPU_COUNT" nic softIrqs,others will be ignored or be set manually!"
-			#loop the cpu number setting
-			#exit
-			tmpC=$(($tmpC-2))
+	debug_echo "$nic_dev nic softIrq list: "$softIrqs
+	debug_echo "Total cpu list: "$CPU_IDS
+	debug_echo "First softIqr: "$first
+	
+	tmpC=$CPU_COUNT
+	
+	for s in $softIrqs;	do
+		tmpC=$(($tmpC - 1))
+		if [ $tmpC -lt 0 ]; then
+			tmpC=$(($CPU_COUNT-1))
 		fi
-		echo "irq no. : "$s;
+		
+		debug_echo "irq no. : "$s;
 		local irq_t="/proc/irq/$s/smp_affinity_list"
 		if [ -f $irq_t ]; then
-			orig=$(cat );
-			echo -n "	original set:" 
-			echo $orig 
+			orig=$(cat $irq_t);
+			debug_echo "	original set :"$orig 
 			cpuid=$tmpC
 			if [ "$orig" == "$cpuid" ]; then
-				echo -n "	already set to:"
-				echo $cpuid
+				debug_echo "	already set to :"$cpuid
 			else
-				echo -n "	will modifie to: "
-				echo $cpuid
-				echo $cpuid > /proc/irq/$s/smp_affinity_list; 
-				cid=$(cat "/proc/irq/$s/smp_affinity_list");
-				if [ "$cpuid" == "$cid" ];then
-					echo "	done"
-				else
-					echo "	Error setting,please check manually!!"
-					echo "	check path:"/proc/irq/$s/smp_affinity_list
-					exit
+				debug_echo "	will modified to: "$cpuid
+				if [ "$ONLY_SHOW" == 'NO' ]; then
+					echo $cpuid > $irq_t;
+					cid=$(cat "$irq_t");
+					if [ "$cpuid" == "$cid" ];then
+						debug_echo "	done"
+					else
+						debug_echo "	Error setting,please check manually!!"
+						debug_echo "	check path:$irq_t"
+						return 1
+					fi
 				fi
 			fi
 		fi
 	done;
+	return 0
 }
 
-
 function usage(){
-  echo "This script can set nic dev to spical cpu node"
-	echo "     via modify /proc/irq/\$nic_irq_num/smp_affinity_list"
-	echo 
-	echo "USAGE:" $0 "-nic nic_dev"
-	echo 
-	echo 
-	exit
+	echo "This Script will set smp_affinity or rps/rps automatically"
+	echo "	via modify '/sys/class/net/' files and/or '/proc/' sysfs"
+	echo "USAGE:$0 -a -o/-q"
+	echo "	-a/--all:	Check all in_used interfaces"
+	echo "	-n/--nic:	Only check/set the specified nic interface [not implement]"
+	echo "	-d/--disable_irqbalance:	Disable irq_balance service automatically"
+	echo "	-o/--only_show:	Only show what will happen"
+	echo "	-q/--quiet:	Nothing will display if no error happen" 
+	exit 1
 }
  
 ############################MAIN################################
@@ -224,19 +367,63 @@ function usage(){
 #	usage
 #fi
 
-check_irqbalance_on
-get_cpuinfo
-echo $?
-get_rpfs_affinity_mask
+#echo "$*"
+if [ ${#@} -lt 1 ];then
+	usage
+fi
 
+parser_args $*
+if [ $? -gt 0 ];then
+	exit
+fi
+
+
+check_irqbalance_on
+if [ $? -gt 0 ]; then
+		exit
+fi
 
 get_all_inused_interfaces
-if [ $? -eq 0 ]; then
-	echo $ALL_USED_INTERFACE
-	for inf in $ALL_USED_INTERFACE; do
-		check_smp_affinity_support $inf
+if [ $? -gt 0 ];then
+	exit
+fi
+
+get_cpuinfo
+if [ $? -gt 0 ]; then
+	exit
+fi
+
+debug_echo "All used interface :" $ALL_USED_INTERFACE
+for inf in $ALL_USED_INTERFACE; do
+	get_smp_affinity_nics $inf
+done
+
+debug_echo '	$SMP_AFFINITY_INF:'$SMP_AFFINITY_INF
+debug_echo '	$RPS_RFS_INF:'$RPS_RFS_INF
+
+if [ $(echo $SMP_AFFINITY_INF | $WC -w) -gt 0 ]; then
+	for inf_t in $SMP_AFFINITY_INF; do
+		do_smpaffinity_enable $inf_t
+		if [ $? -gt 0 ]; then
+			exit 1
+		fi
 	done
-	echo '$SMP_AFFINITY_INF:'$SMP_AFFINITY_INF
-	echo '$RPS_RFS_INF:'$RPS_RFS_INF
-fi	
-exit
+fi
+
+if [ $(echo $RPS_RFS_INF | $WC -w) -gt 0 ]; then
+	get_rpfs_affinity_mask
+	if [ $? -gt 0 ]; then
+		exit 1
+	else
+		do_rsf_entries_enable
+		for inf_t in $RPS_RFS_INF; do
+			do_rpfs_enable $inf_t
+			if [ $? -gt 0 ]; then
+				exit 1
+			fi
+		done
+	fi
+fi
+	
+	
+exit 1
