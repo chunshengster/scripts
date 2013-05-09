@@ -1,9 +1,11 @@
 #!/bin/bash
 # Author:"Wang Chunsheng"<chunshengster@gmail.com>
-# Date: 2013.04.25
-# usage example : ./$0 -nic em1
-#TODO:support config one specified nic card
-#TODO:add numa node support 
+# Date: 2013.05.09
+# usage example : ./$0 -a -o/-q
+# 
+# Some documents can help you to understand smp_affinity or rps/rfs, 
+#		please visit: http://blog.chunshengster.me/2013/05/smp_irq_affinity.html
+# TODO:add numa node support 
 
 
 #set -x
@@ -64,8 +66,7 @@ function parser_args(){
 				shift
 				;;
 			-n|--nic)
-			#hvae not implement
-				nic_dev=$2
+				ALL_USED_INTERFACE=$2
 				shift 2
 				;;
 			-h|--help)
@@ -80,10 +81,11 @@ function parser_args(){
 	    esac
 	done
 	
-	if [ $all_run -eq 0 ] && [ -z $nic_dev ]; then
+	if [ $all_run -eq 0 ] && [ -z $ALL_USED_INTERFACE ]; then
 		usage
 		return 1
 	fi	
+	
 	###
 	# suck !!!!
 	if [ "$ONLY_SHOW" == 'YES' ] && [ "$QUIET" == 'YES' ]; then
@@ -171,15 +173,14 @@ function check_irqbalance_on(){
 	        echo "          likely override this script's affinitization."
 	        echo "          Please stop the irq_balance service and/or execute"
 	        echo "          'killall irqbalance'" 
-	        if [ "$DISABLE_IRQBALANCE" == 'YES' ]; then
-	        	$SERVICE irqbalance stop
-	        	if [ $? -eq 0 ]; then 
-	        		return 0
-	        	fi
-	        fi
-	
 		if [ "$ONLY_SHOW" == 'YES' ];then
 			return 0
+		fi
+	    if [ "$DISABLE_IRQBALANCE" == 'YES' ]; then
+	    	$SERVICE irqbalance stop
+	        if [ $? -eq 0 ]; then 
+	        	return 0
+	        fi
 		fi
 	else
 		return 0
@@ -226,8 +227,11 @@ function do_rpfs_enable(){
 	debug_echo "dealing with rsf_entries :"$rps_cpus_file_t
 	if [ -f $rps_cpus_file_t ]; then
 		local rps_cpus=$($CAT $rps_cpus_file_t | tr -d '0')
+		if [ -z "$rps_cpus" ]; then
+			local rps_cpus=$($CAT $rps_cpus_file_t)
+		fi
 		#compare current rps_cus to $RPS_RFS_MASK
-		if [ $rps_cpus != $RPS_RFS_MASK ]; then
+		if [ "$rps_cpus" != "$RPS_RFS_MASK" ]; then
 			if [ "$ONLY_SHOW" == 'NO' ]; then
 				echo $RPS_RFS_MASK > $rps_cpus_file_t
 				local rps_cpus_tt=$($CAT $rps_cpus_file_t | tr -d '0')
@@ -383,9 +387,11 @@ if [ $? -gt 0 ]; then
 		exit
 fi
 
-get_all_inused_interfaces
-if [ $? -gt 0 ];then
-	exit
+if [ $(echo $ALL_USED_INTERFACE | $WC -w) -lt 1 ]; then
+	get_all_inused_interfaces
+	if [ $? -gt 0 ];then
+		exit
+	fi
 fi
 
 get_cpuinfo
