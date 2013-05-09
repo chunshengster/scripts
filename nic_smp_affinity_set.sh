@@ -302,14 +302,14 @@ function do_smpaffinity_enable(){
 	softIrqs=$($CAT "/proc/interrupts" | $GREP $nic_dev"-" | tr -s " " ":" | cut -d: -f 2)		
 	softIrqCount=$(echo $softIrqs | $WC -w)
 	
-	first=$(echo $softIrqs|cut -d" " -f 1)	
+	#first=$(echo $softIrqs|cut -d" " -f 1)	
 	if [ $CPU_COUNT -lt $softIrqCount ]; then
 		debug_echo "Notice, CPU_COUNT:" $CPU_COUNT " is little than nic softIrqCount :" $softIrqCount
 	fi
 	
 	debug_echo "$nic_dev nic softIrq list: "$softIrqs
 	debug_echo "Total cpu list: "$CPU_IDS
-	debug_echo "First softIqr: "$first
+	#debug_echo "First softIqr: "$first
 	
 	tmpC=$CPU_COUNT
 	
@@ -351,7 +351,7 @@ function usage(){
 	echo "	via modify '/sys/class/net/' files and/or '/proc/' sysfs"
 	echo "USAGE:$0 -a -o/-q"
 	echo "	-a/--all:	Check all in_used interfaces"
-	echo "	-n/--nic:	Only check/set the specified nic interface [not implement]"
+	echo "	-n/--nic:	Only check/set the specified nic interface"
 	echo "	-d/--disable_irqbalance:	Disable irq_balance service automatically"
 	echo "	-o/--only_show:	Only show what will happen"
 	echo "	-q/--quiet:	Nothing will display if no error happen" 
