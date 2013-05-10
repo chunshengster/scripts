@@ -32,8 +32,8 @@ LOG_MSG='NO'
 
 SYSNET_PATH='/sys/class/net'
 QUEUE_PATH='queues'
-RSF_ENTRIES_FILE="/proc/sys/net/core/rps_sock_flow_entries"
-RSF_ENTRIES_NUM=32768
+RPS_ENTRIES_FILE="/proc/sys/net/core/rps_sock_flow_entries"
+RPS_ENTRIES_NUM=32768
 RPS_FLOW_CNT=4096
 
 CPU_IDS=''
@@ -224,7 +224,7 @@ function do_rpfs_enable(){
 	debug_echo "dealing with interface :"$nic_dev
 
 	local rps_cpus_file_t="$SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_cpus"
-	debug_echo "dealing with rsf_entries :"$rps_cpus_file_t
+	debug_echo "dealing with rps_cpus_file :"$rps_cpus_file_t
 	if [ -f $rps_cpus_file_t ]; then
 		local rps_cpus=$($CAT $rps_cpus_file_t | tr -d '0')
 		if [ -z "$rps_cpus" ]; then
@@ -250,7 +250,7 @@ function do_rpfs_enable(){
 	fi
 	
 	local rps_flow_cnt_file_t="$SYSNET_PATH/$nic_dev/$QUEUE_PATH/rx-0/rps_flow_cnt"
-	debug_echo "dealing with rsf_entries :"$rps_flow_cnt_file_t
+	debug_echo "dealing with rps_flow_cnt_file :"$rps_flow_cnt_file_t
 	if [ -f $rps_flow_cnt_file_t ]; then
 		local rps_flow_cnt=$($CAT $rps_flow_cnt_file_t)
 		#compare current rps_flow_cnt to $RPS_FLOW_CNT
@@ -275,24 +275,24 @@ function do_rpfs_enable(){
 	return 0	
 }
 
-function do_rsf_entries_enable(){
-	debug_echo "dealing with rsf_entries :"$RSF_ENTRIES_FILE
-	local rsf_entries=$($CAT $RSF_ENTRIES_FILE)
-	if [ $rsf_entries -eq $RSF_ENTRIES_NUM ]; then
+function do_rps_entries_enable(){
+	debug_echo "dealing with rps_entries :"$RPS_ENTRIES_FILE
+	local rps_entries=$($CAT $RPS_ENTRIES_FILE)
+	if [ $rps_entries -eq $RPS_ENTRIES_NUM ]; then
 		return 0
 	else
 		if [ "$ONLY_SHOW" == 'NO' ];then
-			echo $RSF_ENTRIES_NUM > $RSF_ENTRIES_FILE
-			local rsf_entries_t=$($CAT $RSF_ENTRIES_FILE)
-			if [ $rsf_entries -eq $RSF_ENTRIES_NUM ]; then
+			echo $RPS_ENTRIES_NUM > $RPS_ENTRIES_FILE
+			local rps_entries_t=$($CAT $RPS_ENTRIES_FILE)
+			if [ $rps_entries -eq $RPS_ENTRIES_NUM ]; then
 				return 0
 			else
-				echo "	[ERROR]:setting $RSF_ENTRIES_FILE to $RSF_ENTRIES_NUM error !"
+				echo "	[ERROR]:setting $RPS_ENTRIES_FILE to $RPS_ENTRIES_NUM error !"
 				return 1
 			fi
 		else
-			debug_echo "	origin value :"$rsf_entries
-			debug_echo "	will be set to :"$RSF_ENTRIES_NUM
+			debug_echo "	origin value :"$rps_entries
+			debug_echo "	will be set to :"$RPS_ENTRIES_NUM
 		fi
 	fi
 }
@@ -421,7 +421,7 @@ if [ $(echo $RPS_RFS_INF | $WC -w) -gt 0 ]; then
 	if [ $? -gt 0 ]; then
 		exit 1
 	else
-		do_rsf_entries_enable
+		do_rps_entries_enable
 		for inf_t in $RPS_RFS_INF; do
 			do_rpfs_enable $inf_t
 			if [ $? -gt 0 ]; then
