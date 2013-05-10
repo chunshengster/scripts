@@ -70,7 +70,7 @@ function parser_args(){
 				shift 2
 				;;
 			-h|--help)
-			    echo
+			    usage
 			    return 1
 			    ;;
 			*)
