@@ -10,7 +10,7 @@
 
 #set -x
 
-#for grep nic card pattern,you can change this one to meet you system enverment!
+#for grep nic card pattern, you can change this one to meet your system environment!
 NIC_PATTERN='em\|eth\|p1'
 RX_PATTERN='rx-'
 
@@ -44,41 +44,41 @@ RPS_RFS_INF=''
 RPS_RFS_MASK=''
 
 
-function parser_args(){
+function parser_args() {
 	local all_run=0
 	while test -n "$1"; do
-	    case "$1" in
-			-o|--only_show)
-				DISABLE_IRQBALANCE='NO'
-				ONLY_SHOW='YES'
-			    shift
-			    ;;
-			-q|--quiet)
-			    QUIET='YES'
-			    shift
-			    ;;
-			-a|--all)
-				all_run=1
-				shift
-				;;
-			-d|--disable_irqbalance)
-				DISABLE_IRQBALANCE='YES'
-				shift
-				;;
-			-n|--nic)
-				ALL_USED_INTERFACE=$2
-				shift 2
-				;;
-			-h|--help)
-			    usage
-			    return 1
-			    ;;
-			*)
-			    echo "Unknown argument: $1"
-			    usage
-			    return 1
-			    ;;
-	    esac
+		case "$1" in
+		-o|--only_show)
+			DISABLE_IRQBALANCE='NO'
+			ONLY_SHOW='YES'
+			shift
+			;;
+		-q|--quiet)
+			QUIET='YES'
+			shift
+			;;
+		-a|--all)
+			all_run=1
+			shift
+			;;
+		-d|--disable_irqbalance)
+			DISABLE_IRQBALANCE='YES'
+			shift
+			;;
+		-n|--nic)
+			ALL_USED_INTERFACE=$2
+			shift 2
+			;;
+		-h|--help)
+			usage
+			return 1
+			;;
+		*)
+			echo "Unknown argument: $1"
+			usage
+			return 1
+			;;
+		esac
 	done
 	
 	if [ $all_run -eq 0 ] && [ -z $ALL_USED_INTERFACE ]; then
@@ -100,30 +100,22 @@ function parser_args(){
 	return 1
 }
 
-function debug_echo(){
-	if [ "$QUIET" == 'NO' ];then
-		echo "$*"
-	fi	
-	if [ "$LOG_MSG" == 'YES' ]; then
-		logger "$*"
-	fi
+function debug_echo() {
+	[ "$QUIET" == 'NO' ] && echo "$*"
+	[ "$LOG_MSG" == 'YES' ] && logger "$*"
 }
 
-function check_interface_inuse(){
+function check_interface_inuse() {
 	if [ -f "$SYSNET_PATH/$1/operstate" ]; then 
 		local updown=$($CAT "$SYSNET_PATH/$1/operstate")
 		if [ $? -eq 0 ]; then
-			if [ "$updown" == 'up' ]; then
-				return 0
-			else
-				return 1
-			fi
+			return "$updown" == 'up' ? 0 : 1
 		fi
 	fi
 	return 1
 }
 
-function get_all_inused_interfaces(){
+function get_all_inused_interfaces() {
 	local allInterFaces=$($LS "$SYSNET_PATH" | $GREP $NIC_PATTERN)
 	#local len_t=${#allInterFaces}
 	local len_t=$(echo $allInterFaces | $WC -w)
@@ -131,7 +123,7 @@ function get_all_inused_interfaces(){
 		return 1
 	fi
 	
-	for inf_t in $allInterFaces;do
+	for inf_t in $allInterFaces; do
 		#echo $inf_t
 		check_interface_inuse "$inf_t"
 		if [ $? -eq 0 ]; then
@@ -144,7 +136,7 @@ function get_all_inused_interfaces(){
 }
 
 # get all nic card that support smp_affinity or rfs/rfs ,if no one ,return error
-function get_smp_affinity_nics(){
+function get_smp_affinity_nics() {
 	if [ -z $1 ];then
 		return 1
 	fi
@@ -165,22 +157,22 @@ function get_smp_affinity_nics(){
 
 # check for irq_balance running
 # if $DISABLE_IRQBALANCE == 'YES' then disable irqbalance service
-function check_irqbalance_on(){
+function check_irqbalance_on() {
 	IRQBALANCE_ON=$($PS ax | $GREP -v "grep" | $GREP -q "irqbalance"; echo $?)
-	
+
 	if [ "$IRQBALANCE_ON" == "0" ] ; then
-	        echo " WARNING: irq_balance is running and will"
-	        echo "          likely override this script's affinitization."
-	        echo "          Please stop the irq_balance service and/or execute"
-	        echo "          'killall irqbalance'" 
+		echo " WARNING: irq_balance is running and will"
+		echo "          likely override this script's affinitization."
+		echo "          Please stop the irq_balance service and/or execute"
+		echo "          'killall irqbalance'" 
 		if [ "$ONLY_SHOW" == 'YES' ];then
 			return 0
 		fi
-	    if [ "$DISABLE_IRQBALANCE" == 'YES' ]; then
-	    	$SERVICE irqbalance stop
-	        if [ $? -eq 0 ]; then 
-	        	return 0
-	        fi
+		if [ "$DISABLE_IRQBALANCE" == 'YES' ]; then
+			$SERVICE irqbalance stop
+			if [ $? -eq 0 ]; then 
+			return 0
+			fi
 		fi
 	else
 		return 0
@@ -188,7 +180,7 @@ function check_irqbalance_on(){
 	return 1
 }
 
-function get_cpuinfo(){
+function get_cpuinfo() {
 	CPU_IDS=$($CAT "/proc/cpuinfo" | $GREP processor | $GREP -v grep | cut -d: -f 2)	
 	CPU_COUNT=$(echo $CPU_IDS | $WC -w)
 	if [ $CPU_COUNT -lt 1 ];then
@@ -198,7 +190,7 @@ function get_cpuinfo(){
 }
 
 #
-function get_rpfs_affinity_mask(){
+function get_rpfs_affinity_mask() {
 	local t=$(($CPU_COUNT/4))
 	if [ $t -lt 1 ]; then
 		return 1
@@ -207,18 +199,18 @@ function get_rpfs_affinity_mask(){
 	for i in $(seq $t); do
 		RPS_RFS_MASK=$RPS_RFS_MASK'f'
 	done
-	#	local t1=$(($CPU_COUNT-$t))
+	#local t1=$(($CPU_COUNT-$t))
 	#if [ $t1 -gt 0 ]; then
-		#	for i in $(seq $t1); do
-			#	RPS_RFS_MASK="0"$RPS_RFS_MASK
-		#done
+	#	for i in $(seq $t1); do
+	#		RPS_RFS_MASK="0"$RPS_RFS_MASK
+	#	done
 	#fi
 	
 	local ok_t=$(echo $RPS_RFS_MASK | $GREP -q 'f'; echo $?)
 	return $ok_t				
 }
 
-function do_rpfs_enable(){
+function do_rpfs_enable() {
 	nic_dev=$1
 	
 	debug_echo "dealing with interface :"$nic_dev
@@ -275,7 +267,7 @@ function do_rpfs_enable(){
 	return 0	
 }
 
-function do_rps_entries_enable(){
+function do_rps_entries_enable() {
 	debug_echo "dealing with rps_entries :"$RPS_ENTRIES_FILE
 	local rps_entries=$($CAT $RPS_ENTRIES_FILE)
 	if [ $rps_entries -eq $RPS_ENTRIES_NUM ]; then
@@ -297,7 +289,7 @@ function do_rps_entries_enable(){
 	fi
 }
 
-function do_smpaffinity_enable(){
+function do_smpaffinity_enable() {
 	nic_dev=$1
 	softIrqs=$($CAT "/proc/interrupts" | $GREP $nic_dev"-" | tr -s " " ":" | cut -d: -f 2)		
 	softIrqCount=$(echo $softIrqs | $WC -w)
@@ -313,7 +305,7 @@ function do_smpaffinity_enable(){
 	
 	tmpC=$CPU_COUNT
 	
-	for s in $softIrqs;	do
+	for s in $softIrqs; do
 		tmpC=$(($tmpC - 1))
 		if [ $tmpC -lt 0 ]; then
 			tmpC=$(($CPU_COUNT-1))
@@ -342,11 +334,11 @@ function do_smpaffinity_enable(){
 				fi
 			fi
 		fi
-	done;
+	done
 	return 0
 }
 
-function usage(){
+function usage() {
 	echo "This Script will set smp_affinity or rps/rps automatically"
 	echo "	via modify '/sys/class/net/' files and/or '/proc/' sysfs"
 	echo "USAGE:$0 -a -o/-q"
@@ -372,24 +364,24 @@ function usage(){
 #fi
 
 #echo "$*"
-if [ ${#@} -lt 1 ];then
+if [ ${#@} -lt 1 ]; then
 	usage
 fi
 
 parser_args $*
-if [ $? -gt 0 ];then
+if [ $? -gt 0 ]; then
 	exit
 fi
 
 
 check_irqbalance_on
 if [ $? -gt 0 ]; then
-		exit
+	exit
 fi
 
 if [ $(echo $ALL_USED_INTERFACE | $WC -w) -lt 1 ]; then
 	get_all_inused_interfaces
-	if [ $? -gt 0 ];then
+	if [ $? -gt 0 ]; then
 		exit
 	fi
 fi
