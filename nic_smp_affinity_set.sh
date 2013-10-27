@@ -106,10 +106,18 @@ function debug_echo() {
 }
 
 function check_interface_inuse() {
+	if [ ${#@} -lt 1 ]; then
+		return 1
+	fi
 	if [ -f "$SYSNET_PATH/$1/operstate" ]; then 
 		local updown=$($CAT "$SYSNET_PATH/$1/operstate")
 		if [ $? -eq 0 ]; then
-			return "$updown" == 'up' ? 0 : 1
+			if [ "$updown" == "up" ];then
+				return 0
+			else
+				return 1
+			#return  "$updown" == "up"  ? 0 : 1
+			fi
 		fi
 	fi
 	return 1
