@@ -61,6 +61,10 @@ function parser_args() {
 			all_run=1
 			shift
 			;;
+		-b|--both)
+			both=1
+			shift
+			;;
 		-d|--disable_irqbalance)
 			DISABLE_IRQBALANCE='YES'
 			shift
@@ -351,6 +355,7 @@ function usage() {
 	echo "	via modify '/sys/class/net/' files and/or '/proc/' sysfs"
 	echo "USAGE:$0 -a -o/-q"
 	echo "	-a/--all:	Check all in_used interfaces"
+	echo "	-b/--both:	Both set rps/rqs and smp irq affinity"
 	echo "	-n/--nic:	Only check/set the specified nic interface"
 	echo "	-d/--disable_irqbalance:	Disable irq_balance service automatically"
 	echo "	-o/--only_show:	Only show what will happen"
